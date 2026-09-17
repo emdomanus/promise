@@ -1,0 +1,15 @@
+{
+  "name": "promise-dev",
+  "tree": {
+    "$className": "DataModel",
+    "ReplicatedStorage": {
+      "$className": "ReplicatedStorage",
+      "packages": {
+        "$className": "Folder",
+        "promise": {
+          "$path": "src"
+        }
+      }
+    }
+  }
+}

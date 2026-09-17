@@ -1,0 +1,15 @@
+--!strict
+local Promise = require(game.ReplicatedStorage.packages.promise.components.promise.shared.promise)
+local function wrongResolution(resolve: Promise.Resolve<number>): ()
+ resolve("wrong")
+end
+local function wrongAwait(promise: Promise.Promise<number>): string
+ return promise:await()
+end
+local function wrongObserver(promise: Promise.Promise<number>): ()
+ promise:andThen(function(value: string): () print(value) end)
+end
+local function privateState(promise: Promise.Promise<number>): ()
+ print(promise._resolved)
+end
+return {resolution = wrongResolution, await = wrongAwait, observer = wrongObserver, private = privateState}

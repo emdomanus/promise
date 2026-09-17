@@ -1,0 +1,10 @@
+*.rbxm
+*.rbxmx
+*.rbxlx
+sourcemap.json
+dev-sourcemap.json
+roblox_packages/
+.pesde/
+.verification/
+.promise-lune-runtime/
+scripts/luau-lsp/globalTypes.d.luau

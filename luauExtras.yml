@@ -1,0 +1,8 @@
+# Match Luau's optional assert message, as in the Minerva tooling setup.
+base: roblox
+globals:
+  assert:
+    args:
+      - type: any
+      - type: string
+        required: false
