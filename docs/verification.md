@@ -2,9 +2,23 @@
 
 ## Commands
 
-All tool binaries resolve through `~/.rokit/bin` using `rokit.toml` pins.
+Tool binaries resolve through `~/.rokit/bin` using `rokit.toml` pins.
 Roblox definitions used by the analyzer are generated local state; fetch them with
 `scripts/luau-lsp/fetch-roblox-types.ps1` when needed.
+Keep the same definitions snapshot throughout a before/after comparison; both `analyze.ps1`
+and `types.ps1` accept `-Definitions` to select an existing snapshot.
+
+The analyzer alone supports `LUAU_LSP_OVERRIDE`: an absolute executable path that must report
+the pinned 1.70.1 version. On Windows, the persisted user value is used when no process value
+exists. The wrapper preserves both output streams and the native exit code, explicitly enables
+solver V2, and saves raw output plus binary identity, override SHA-256, definitions hash, and
+manifest hash under `.verification/analyze/` (or `-OutDir`). It does not replace Rokit caches.
+The editor also enables solver V2 in `.vscode/settings.json`.
+
+`types.ps1` creates a fresh evidence directory and requires each `EXPECT_ERROR` expression
+to produce a type error at its marked line. Unexpected dependency diagnostics, syntax errors,
+crashes, missing errors, and successful negative-analysis exits fail the check. Absolute and
+relative headers for the same expression count once. Accepted examples must exit cleanly.
 
 ```powershell
 .\scripts\verify\tests.ps1
@@ -12,6 +26,7 @@ Roblox definitions used by the analyzer are generated local state; fetch them wi
 .\scripts\verify\analyze.ps1
 .\scripts\verify\selene.ps1
 .\scripts\verify\stylua.ps1
+.\scripts\verify\tooling-tests.ps1
 .\scripts\verify\benchmark.ps1 -OutFile .verification/benchmark.txt
 .\scripts\verify\benchmark.ps1 -Native -OutFile .verification/benchmark-native.txt
 ```
