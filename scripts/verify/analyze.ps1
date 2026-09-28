@@ -78,6 +78,7 @@ try {
 
 	$analyzeArgs = @(
 		"analyze",
+		"--flag:LuauSolverV2=true",
 		"--sourcemap=$Sourcemap",
 		"--definitions:@roblox=$($definitionsPath.ProviderPath)"
 	)

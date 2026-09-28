@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-	[string]$Spec = "tests\lune\promise.spec.luau"
+	[string[]]$Spec = @("tests\lune\promise.spec.luau", "tests\lune\promiseAllocation.spec.luau")
 )
 
 $ErrorActionPreference = "Stop"
@@ -20,17 +20,22 @@ function Resolve-RokitBinary {
 }
 
 $repoRoot = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..\..")
-$specPath = Join-Path $repoRoot $Spec
-if (-not (Test-Path -LiteralPath $specPath -PathType Leaf)) {
-	throw "Promise spec was not found at '$specPath'."
+foreach ($suite in $Spec) {
+	$specPath = Join-Path $repoRoot $suite
+	if (-not (Test-Path -LiteralPath $specPath -PathType Leaf)) {
+		throw "Promise spec was not found at '$specPath'."
+	}
 }
 
 $lune = Resolve-RokitBinary "lune"
 
 Push-Location $repoRoot
 try {
-	& $lune "run" $Spec
-	exit $LASTEXITCODE
+	foreach ($suite in $Spec) {
+		& $lune "run" $suite
+		if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+	}
+	exit 0
 } finally {
 	Pop-Location
 }

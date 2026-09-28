@@ -1,3 +1,4 @@
+--!native
 --!strict
 --!optimize 2
 
@@ -9,14 +10,11 @@ export type Promise<T> = PromiseTypes.Promise<T>
 type PromiseImpl<T> = PromiseTypes.PromiseImpl<T>
 export type Executor<T> = PromiseTypes.Executor<T>
 type PromiseModule = {
-	new: <T>(executor: Executor<T>) -> Promise<T>,
-	resolve: <T>(value: T) -> Promise<T>,
-	reject: <T>(err: unknown) -> Promise<T>,
-	all: <T>(promises: { Promise<T> }) -> Promise<{ T }>,
+	read new: <T>(executor: Executor<T>) -> Promise<T>,
+	read resolve: <T>(value: T) -> Promise<T>,
+	read reject: (err: unknown) -> Promise<any>,
+	read all: <T>(promises: { Promise<T> }) -> Promise<{ T }>,
 }
-
-local Promise = {}
-Promise.__index = Promise
 
 local function safeCall(tag: string, fn: () -> ())
 	local ok, err = pcall(function(): unknown
@@ -28,6 +26,16 @@ local function safeCall(tag: string, fn: () -> ())
 	end
 end
 
+local function settleClear<T>(self: PromiseImpl<T>): ()
+	self._callbacks = nil
+	self._errbacks = nil
+	self._waiters = nil
+	self._cancelHandlers = nil
+end
+
+local Promise = {}
+Promise.__index = Promise
+
 function Promise.new<T>(executor: Executor<T>): Promise<T>
 	local self: PromiseImpl<T> = (setmetatable({}, Promise) :: unknown) :: PromiseImpl<T>
 
@@ -38,17 +46,6 @@ function Promise.new<T>(executor: Executor<T>): Promise<T>
 	self._value = nil
 	self._error = nil
 
-	self._callbacks = {} :: { (T) -> () }
-	self._errbacks = {} :: { (unknown) -> () }
-	self._waiters = {} :: { thread }
-	self._cancelHandlers = {} :: { () -> () }
-
-	local function settleClear()
-		table.clear(self._callbacks)
-		table.clear(self._errbacks)
-		table.clear(self._cancelHandlers)
-	end
-
 	local function resolve(value: T)
 		if self._resolved or self._rejected or self._cancelled then
 			return
@@ -57,16 +54,21 @@ function Promise.new<T>(executor: Executor<T>): Promise<T>
 		self._resolved = true
 		self._value = value
 
-		for _, fn in self._callbacks do
-			fn(value)
+		local callbacks = self._callbacks
+		if callbacks then
+			for _, fn in callbacks do
+				fn(value)
+			end
 		end
 
-		for _, th in self._waiters do
-			coroutine.resume(th, true, value)
+		local waiters = self._waiters
+		if waiters then
+			for _, th in waiters do
+				coroutine.resume(th, true, value)
+			end
 		end
 
-		table.clear(self._waiters)
-		settleClear()
+		settleClear(self)
 	end
 
 	local function reject(err: unknown)
@@ -77,16 +79,21 @@ function Promise.new<T>(executor: Executor<T>): Promise<T>
 		self._rejected = true
 		self._error = err
 
-		for _, fn in self._errbacks do
-			fn(err)
+		local errbacks = self._errbacks
+		if errbacks then
+			for _, fn in errbacks do
+				fn(err)
+			end
 		end
 
-		for _, th in self._waiters do
-			coroutine.resume(th, false, err)
+		local waiters = self._waiters
+		if waiters then
+			for _, th in waiters do
+				coroutine.resume(th, false, err)
+			end
 		end
 
-		table.clear(self._waiters)
-		settleClear()
+		settleClear(self)
 	end
 
 	local function bindToCancelImpl(fn: () -> ())
@@ -99,7 +106,12 @@ function Promise.new<T>(executor: Executor<T>): Promise<T>
 			-- already settled: don't track cancel
 			return
 		end
-		table.insert(self._cancelHandlers, fn)
+		local cancelHandlers = self._cancelHandlers
+		if cancelHandlers then
+			table.insert(cancelHandlers, fn)
+		else
+			self._cancelHandlers = { fn }
+		end
 	end
 
 	-- All executor callbacks are supplied; an executor may ignore unused arguments.
@@ -115,15 +127,26 @@ function Promise.new<T>(executor: Executor<T>): Promise<T>
 end
 
 function Promise.resolve<T>(value: T): Promise<T>
-	return Promise.new(function(resolve)
-		resolve(value)
-	end)
+	return (
+		setmetatable({
+			_resolved = true,
+			_rejected = false,
+			_cancelled = false,
+			_value = value,
+		}, Promise) :: unknown
+	) :: Promise<T>
 end
 
-function Promise.reject<T>(err: unknown): Promise<T>
-	return Promise.new(function(_resolve, reject)
-		(reject :: Reject)(err)
-	end)
+function Promise.reject(err: unknown): Promise<any>
+	-- Permanently rejected: no successful value can escape this intentionally erased type.
+	return (
+		setmetatable({
+			_resolved = false,
+			_rejected = true,
+			_cancelled = false,
+			_error = err,
+		}, Promise) :: unknown
+	) :: Promise<any>
 end
 
 -- Cancelling the "all" promise cancels all children.
@@ -180,7 +203,12 @@ function Promise.andThen<T>(self: PromiseImpl<T>, fn: (T) -> ()): Promise<T>
 	if self._resolved then
 		fn(self._value :: T)
 	elseif not self._rejected and not self._cancelled then
-		table.insert(self._callbacks, fn)
+		local callbacks = self._callbacks
+		if callbacks then
+			table.insert(callbacks, fn)
+		else
+			self._callbacks = { fn }
+		end
 	end
 	return self
 end
@@ -189,7 +217,12 @@ function Promise.catch<T>(self: PromiseImpl<T>, fn: (unknown) -> ()): Promise<T>
 	if self._rejected then
 		fn(self._error)
 	elseif not self._resolved and not self._cancelled then
-		table.insert(self._errbacks, fn)
+		local errbacks = self._errbacks
+		if errbacks then
+			table.insert(errbacks, fn)
+		else
+			self._errbacks = { fn }
+		end
 	end
 	return self
 end
@@ -210,7 +243,12 @@ function Promise.await<T>(self: PromiseImpl<T>): T
 		error("Promise.await() must be called from a yielding thread", 2)
 	end
 
-	table.insert(self._waiters, th)
+	local waiters = self._waiters
+	if waiters then
+		table.insert(waiters, th)
+	else
+		self._waiters = { th }
+	end
 
 	local ok, payload = coroutine.yield()
 	if not ok then
@@ -231,18 +269,24 @@ function Promise.cancel<T>(self: PromiseImpl<T>): ()
 
 	self._cancelled = true
 
-	for _, fn in self._cancelHandlers do
-		safeCall("Error in Promise cancel handler", fn)
+	local cancelHandlers = self._cancelHandlers
+	if cancelHandlers then
+		for _, fn in cancelHandlers do
+			safeCall("Error in Promise cancel handler", fn)
+		end
 	end
-	table.clear(self._cancelHandlers)
+	self._cancelHandlers = nil
 
-	table.clear(self._callbacks)
-	table.clear(self._errbacks)
+	self._callbacks = nil
+	self._errbacks = nil
 
-	for _, th in self._waiters do
-		coroutine.resume(th, false, nil)
+	local waiters = self._waiters
+	if waiters then
+		for _, th in waiters do
+			coroutine.resume(th, false, nil)
+		end
 	end
-	table.clear(self._waiters)
+	self._waiters = nil
 end
 
 function Promise.isPending<T>(self: PromiseImpl<T>): boolean
